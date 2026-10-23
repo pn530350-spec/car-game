@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prince Barman Racing</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101820;color:white;font-family:Arial;overflow:hidden}
+#game{position:relative;width:100%;height:100dvh;overflow:hidden;background:#426b32}
+canvas{width:100%;height:100%;display:block}
+.top{position:absolute;top:12px;width:100%;text-align:center;text-shadow:2px 2px 5px #000;pointer-events:none}
+h1{font-size:clamp(20px,5vw,30px);color:#ffca28;margin:0}
+.top p{font-size:12px}
+.hud{position:absolute;top:90px;left:10px;background:#07111de8;padding:12px;border-radius:12px}
+#speed{font-size:clamp(17px,4vw,27px);color:#43eaff;font-weight:bold}
+#score{margin-top:8px;color:#ffcc40}
+.controls{position:absolute;bottom:15px;width:100%;display:flex;justify-content:center;gap:7px;padding:0 5px}
+button{padding:13px 12px;border:2px solid white;border-radius:12px;background:#142337;color:white;font-weight:bold;font-size:14px;touch-action:none}
+button:active{background:#ffbd18;color:#111}
+#nitro{background:#ff8b00;color:#111}
+#overlay{position:absolute;inset:0;background:#050b14ed;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:20px}
+#overlay h2{font-size:35px;color:#ffca28}
+#overlay p{line-height:1.8}
+#overlay button{background:#ffca28;color:#111;padding:16px 28px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="canvas"></canvas>
+<div class="top">
+<h1>🏁 PRINCE BARMAN RACING</h1>
+<p>CLASS 9TH • EXTREME CAR GAME</p>
+</div>
+<div class="hud">
+<div id="speed">0 km/h</div>
+<div id="score">SCORE: 0</div>
+</div>
+<div class="controls">
+<button id="left">⬅ LEFT</button>
+<button id="brake">BRAKE</button>
+<button id="nitro">⚡ NITRO</button>
+<button id="right">RIGHT ➡</button>
+</div>
+<div id="overlay">
+<h2>🏎️ PRINCE RACING</h2>
+<p>PRINCE BARMAN<br>CLASS 9TH<br>SUPER NITRO: 999999990000 KM/H<br>Dodge traffic and race!</p>
+<button id="start">▶ START GAME</button>
+</div>
+</div>
+<script>
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const $=id=>document.getElementById(id);
+let W,H,roadW;
+let running=false,score=0,distance=0;
+let speed=0,playerX=0,steering=0,nitro=false,braking=false;
+let cars=[],roadOffset=0,last=0,spawn=0;
+const MAX_SPEED=999999990000;
+
+function resize(){
+ const dpr=Math.min(devicePixelRatio||1,2);
+ W=canvas.clientWidth;H=canvas.clientHeight;
+ canvas.width=W*dpr;canvas.height=H*dpr;
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ roadW=Math.min(W*.78,500);
+}
+addEventListener("resize",resize);resize();
+
+function tree(x,y,s){
+ ctx.fillStyle="#553b21";ctx.fillRect(x-3*s,y,6*s,15*s);
+ ctx.fillStyle="#174626";ctx.beginPath();
+ ctx.arc(x,y,14*s,0,7);ctx.fill();
+ ctx.fillStyle="#34723a";ctx.beginPath();
+ ctx.arc(x-5*s,y-5*s,9*s,0,7);ctx.fill();
+}
+function drawRoad(){
+ ctx.fillStyle="#477337";ctx.fillRect(0,0,W,H);
+ for(let i=0;i<16;i++){
+  let y=((i*100+roadOffset*1.5)%(H+100))-50;
+  tree(W*.09,y,1+y/H*.3);
+  tree(W*.91,y+30,1+y/H*.3);
+ }
+ let top=roadW*.48,bot=roadW;
+ ctx.fillStyle="#292d34";ctx.beginPath();
+ ctx.moveTo(W/2-top/2,0);ctx.lineTo(W/2+top/2,0);
+ ctx.lineTo(W/2+bot/2,H);ctx.lineTo(W/2-bot/2,H);
+ ctx.closePath();ctx.fill();
+ ctx.strokeStyle="white";ctx.lineWidth=4;
+ ctx.beginPath();ctx.moveTo(W/2-top/2,0);ctx.lineTo(W/2-bot/2,H);
+ ctx.moveTo(W/2+top/2,0);ctx.lineTo(W/2+bot/2,H);ctx.stroke();
+ for(let lane=1;lane<=2;lane++){
+  for(let i=0;i<12;i++){
+   let y=((i*90+roadOffset*2)%(H+100))-30;
+   let t=Math.max(0,y/H),rw=top+(bot-top)*t;
+   ctx.fillStyle="#fff5d1";
+   ctx.fillRect(W/2-rw/2+rw*lane/3-2,y,4,25+t*25);
+  }
+ }
+}
+function drawCar(x,y,w,h,color,player=false){
+ ctx.save();ctx.translate(x,y);
+ ctx.fillStyle="#0008";ctx.beginPath();
+ ctx.ellipse(0,h*.35,w*.6,h*.5,0,0,7);ctx.fill();
+ ctx.fillStyle="#101114";
+ for(const side of [-1,1]){
+  ctx.fillRect(side*w*.4-w*.09,-h*.25,w*.18,h*.3);
+  ctx.fillRect(side*w*.4-w*.09,h*.15,w*.18,h*.3);
+ }
+ ctx.fillStyle=color;ctx.beginPath();
+ ctx.moveTo(-w*.34,h*.45);ctx.lineTo(-w*.45,-h*.12);
+ ctx.lineTo(-w*.28,-h*.46);ctx.lineTo(w*.28,-h*.46);
+ ctx.lineTo(w*.45,-h*.12);ctx.lineTo(w*.34,h*.45);
+ ctx.closePath();ctx.fill();
+ ctx.fillStyle="#91e5ff";ctx.beginPath();
+ ctx.moveTo(-w*.26,-h*.28);ctx.lineTo(w*.26,-h*.28);
+ ctx.lineTo(w*.21,-h*.04);ctx.lineTo(-w*.21,-h*.04);
+ ctx.closePath();ctx.fill();
+ ctx.fillStyle="#fff4ae";
+ ctx.fillRect(-w*.3,h*.3,w*.13,h*.07);
+ ctx.fillRect(w*.17,h*.3,w*.13,h*.07);
+ if(player){
+  ctx.fillStyle="#20eaff";ctx.fillRect(-w*.12,h*.4,w*.24,h*.05);
+ }
+ ctx.restore();
+}
+function spawnCar(){
+ const lanes=[-.29,0,.29];
+ cars.push({lane:lanes[Math.floor(Math.random()*3)],
+ y:-100,color:["#e34242","#f4bb35","#38a9df","#ad69db"][Math.floor(Math.random()*4)]});
+}
+function update(dt){
+ if(!running)return;
+ // Nitro speed is displayed up to the requested number.
+ // Physics are capped separately so the game remains playable.
+ const target=braking?0:(nitro?MAX_SPEED:430);
+ speed+=(target-speed)*Math.min(1,dt*(nitro?.9:1));
+ speed=Math.max(0,Math.min(MAX_SPEED,speed));
+ playerX+=steering*dt*W*.65;
+ playerX=Math.max(-roadW*.32,Math.min(roadW*.32,playerX));
+ const visualSpeed=nitro?Math.min(600,150+speed/1e9):Math.min(430,speed);
+ distance+=visualSpeed*dt;
+ score+=Math.floor(visualSpeed*dt/20);
+ roadOffset=(roadOffset+visualSpeed*dt*.7)%90;
+ spawn+=dt;
+ if(spawn>Math.max(.4,1.5-visualSpeed/650)){
+  spawnCar();spawn=0;
+ }
+ for(let c of cars){
+  c.y+=(visualSpeed*.75+80)*dt;
+  if(c.y>H*.66&&c.y<H*.91&&Math.abs(W/2+c.lane*roadW-(W/2+playerX))<roadW*.15){
+   endGame();return;
+  }
+ }
+ cars=cars.filter(c=>c.y<H+100);
+ $("speed").textContent=Math.floor(speed)+" km/h";
+ $("score").textContent="SCORE: "+score;
+}
+function render(){
+ drawRoad();
+ for(const c of cars)drawCar(W/2+c.lane*roadW,c.y,roadW*.13,roadW*.24,c.color);
+ drawCar(W/2+playerX,H*.79,roadW*.17,roadW*.31,"#e51d39",true);
+ if(nitro&&running){
+  ctx.fillStyle="#28e5ff";
+  ctx.beginPath();ctx.moveTo(W/2+playerX-roadW*.035,H*.91);
+  ctx.lineTo(W/2+playerX,H*.99);
+  ctx.lineTo(W/2+playerX+roadW*.035,H*.91);ctx.fill();
+ }
+}
+function loop(t){
+ let dt=Math.min((t-last)/1000||0,.04);last=t;
+ update(dt);render();requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function startGame(){
+ cars=[];speed=0;score=0;distance=0;playerX=0;
+ steering=0;spawn=0;running=true;
+ $("overlay").classList.add("hide");
+}
+function endGame(){
+ running=false;
+ $("overlay").innerHTML="<h2>🏁 GAME OVER</h2><p>Prince Barman<br>Score: "+score+
+ "</p><button id='restart'>🔄 RESTART</button>";
+ $("overlay").classList.remove("hide");
+ $("restart").onclick=startGame;
+}
+$("start").onclick=startGame;
+
+function hold(id,down,up){
+ const b=$(id);
+ b.addEventListener("pointerdown",e=>{
+  e.preventDefault();b.setPointerCapture(e.pointerId);down();
+ });
+ const release=e=>{e.preventDefault();up()};
+ b.addEventListener("pointerup",release);
+ b.addEventListener("pointercancel",release);
+ b.addEventListener("lostpointercapture",up);
+}
+hold("left",()=>steering=-1,()=>{if(steering===-1)steering=0});
+hold("right",()=>steering=1,()=>{if(steering===1)steering=0});
+hold("nitro",()=>nitro=true,()=>nitro=false);
+hold("brake",()=>braking=true,()=>braking=false);
+
+document.addEventListener("keydown",e=>{
+ if(e.key==="ArrowLeft"||e.key.toLowerCase()==="a")steering=-1;
+ if(e.key==="ArrowRight"||e.key.toLowerCase()==="d")steering=1;
+ if(e.key==="ArrowUp"||e.key===" ")nitro=true;
+ if(e.key==="ArrowDown")braking=true;
+});
+document.addEventListener("keyup",e=>{
+ if(e.key==="ArrowLeft"||e.key.toLowerCase()==="a"){if(steering===-1)steering=0}
+ if(e.key==="ArrowRight"||e.key.toLowerCase()==="d"){if(steering===1)steering=0}
+ if(e.key==="ArrowUp"||e.key===" ")nitro=false;
+ if(e.key==="ArrowDown")braking=false;
+});
+</script>
+</body>
+</html>
